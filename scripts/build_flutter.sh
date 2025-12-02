@@ -140,14 +140,14 @@ build_android() {
     
     echo -e "${BLUE}Copying libraries to $JNILIBS_DIR${NC}"
     
-    # Copy Rust library (FRB cdylib)
-    if [ -f "$RUST_PROJECT/target/$RUST_TARGET/release/libllm.so" ]; then
-        cp "$RUST_PROJECT/target/$RUST_TARGET/release/libllm.so" "$JNILIBS_DIR/"
-        echo -e "  ✓ libllm.so (Rust FRB)"
+    # Copy Rust FRB library (renamed to avoid conflict with MNN's libllm.so)
+    if [ -f "$RUST_PROJECT/target/$RUST_TARGET/release/libmnn_llm_frb.so" ]; then
+        cp "$RUST_PROJECT/target/$RUST_TARGET/release/libmnn_llm_frb.so" "$JNILIBS_DIR/"
+        echo -e "  ✓ libmnn_llm_frb.so (Rust FRB)"
     fi
     
-    # Copy MNN libraries
-    for lib in libMNN.so libMNN_Express.so libMNNOpenCV.so; do
+    # Copy MNN libraries (including libllm.so from MNN)
+    for lib in libMNN.so libMNN_Express.so libMNNOpenCV.so libllm.so; do
         if [ -f "$MNN_LIB/$lib" ]; then
             cp "$MNN_LIB/$lib" "$JNILIBS_DIR/"
             echo -e "  ✓ $lib"

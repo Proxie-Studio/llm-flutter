@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/rust/api.dart';
@@ -34,13 +35,14 @@ Future<ExternalLibrary> _loadLibrary() async {
       return ExternalLibrary.process(iKnowHowToUseIt: true);
     }
   } else if (Platform.isAndroid) {
-    return ExternalLibrary.open('libllm.so');
+    // Use different name to avoid conflict with MNN's libllm.so
+    return ExternalLibrary.open('libmnn_llm_frb.so');
   } else if (Platform.isMacOS) {
-    return ExternalLibrary.open('libllm.dylib');
+    return ExternalLibrary.open('libmnn_llm_frb.dylib');
   } else if (Platform.isLinux) {
-    return ExternalLibrary.open('libllm.so');
+    return ExternalLibrary.open('libmnn_llm_frb.so');
   } else if (Platform.isWindows) {
-    return ExternalLibrary.open('llm.dll');
+    return ExternalLibrary.open('mnn_llm_frb.dll');
   }
   throw UnsupportedError('Unsupported platform');
 }
@@ -51,7 +53,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'MNN LLM Chat',
+      title: 'NorrChat',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.blue,
@@ -111,11 +113,36 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadSettings() async {
+    // Request storage permissions on Android
+    if (Platform.isAndroid) {
+      await _requestStoragePermissions();
+    }
+    
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _modelPath = prefs.getString('model_path');
       _useMmap = prefs.getBool('use_mmap') ?? true;
     });
+  }
+
+  Future<void> _requestStoragePermissions() async {
+    // For Android 11+ (API 30+), we need MANAGE_EXTERNAL_STORAGE
+    // For older versions, READ/WRITE_EXTERNAL_STORAGE is enough
+    if (await Permission.manageExternalStorage.isGranted) {
+      return;
+    }
+    
+    // Try requesting manage external storage first (Android 11+)
+    var status = await Permission.manageExternalStorage.request();
+    if (status.isGranted) {
+      return;
+    }
+    
+    // Fall back to regular storage permission
+    status = await Permission.storage.request();
+    if (!status.isGranted) {
+      debugPrint('Storage permission denied');
+    }
   }
 
   Future<void> _saveSettings() async {
@@ -461,9 +488,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool showLoadingOverlay = _llm == null;
+    
     return Scaffold(
       appBar: AppBar(
-        title: const Text('MNN LLM Chat'),
+        title: const Text('NorrChat'),
         actions: [
           if (_llm == null)
             TextButton.icon(
@@ -489,7 +518,9 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
+        children: [
+          Column(
         children: [
           // Messages list
           Expanded(
@@ -629,6 +660,82 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           ),
+        ],
+      ),
+          // Full-screen loading overlay until model is loaded
+          if (showLoadingOverlay)
+            Container(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.asset(
+                      'assets/icon.png',
+                      width: 120,
+                      height: 120,
+                      errorBuilder: (context, error, stackTrace) => Icon(
+                        Icons.chat_bubble_rounded,
+                        size: 120,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'NorrChat',
+                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'On-device AI Assistant',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
+                    const SizedBox(height: 48),
+                    if (_isLoading) ...[
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Loading model...',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                    ] else ...[
+                      FilledButton.icon(
+                        onPressed: _modelPath != null ? _loadModel : null,
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('Load Model'),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _pickModelFolder,
+                        icon: const Icon(Icons.folder_open),
+                        label: Text(_modelPath != null ? 'Change Model' : 'Select Model Folder'),
+                      ),
+                      if (_modelPath != null) ...[
+                        const SizedBox(height: 16),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            _modelPath!.split('/').last,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );

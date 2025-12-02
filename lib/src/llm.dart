@@ -27,7 +27,15 @@ DynamicLibrary _loadLibrary() {
     // Now load our Rust wrapper
     return DynamicLibrary.open('libmnn_llm_rust.so');
   } else if (Platform.isIOS) {
-    return DynamicLibrary.process();
+    // In debug mode, Flutter links native code into Runner.debug.dylib
+    // In release mode, it's statically linked into the main executable
+    // Try loading from the debug dylib first, fall back to process()
+    try {
+      return DynamicLibrary.open('@executable_path/Runner.debug.dylib');
+    } catch (_) {
+      // Release build - symbols are in main executable
+      return DynamicLibrary.process();
+    }
   } else if (Platform.isMacOS) {
     return DynamicLibrary.open('libmnn_llm_rust.dylib');
   } else if (Platform.isLinux) {

@@ -74,10 +74,10 @@ class _LlmChatScreenState extends State<LlmChatScreen> {
   String get _modelPath {
     if (Platform.isAndroid) {
       // On Android, the model should be in the app's files directory or external storage
-      return '/data/local/tmp/Qwen3-4B-Instruct-2507-MNN/llm_config.json';
+      return '/data/local/tmp/Qwen3-4B-Instruct-2507-MNN/config.json';
     } else {
-      // For development/desktop
-      return '/Users/sanic/llm_flutter/Qwen3-4B-Instruct-2507-MNN/llm_config.json';
+      // For development/desktop - note: iOS simulator can access macOS filesystem
+      return '/Users/sanic/llm-flutter/Qwen3-4B-Instruct-2507-MNN/config.json';
     }
   }
 

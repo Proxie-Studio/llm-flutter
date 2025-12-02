@@ -6,6 +6,7 @@ On-device Large Language Model inference for Flutter using MNN backend.
 
 - 🚀 On-device inference (no cloud required)
 - 📱 Android arm64 support
+- 🍎 iOS support (device and simulator)
 - 🔄 Streaming text generation
 - 💬 Chat interface with Qwen3-4B model
 - 🧠 Memory-mapped file loading for reduced RAM usage
@@ -13,34 +14,48 @@ On-device Large Language Model inference for Flutter using MNN backend.
 ## Prerequisites
 
 - Flutter SDK 3.10+
-- Rust toolchain with Android targets
-- Android NDK r26+
+- Rust toolchain
+- For Android: Android NDK r26+
+- For iOS: Xcode 15+, CMake (`brew install cmake`)
 - ~4GB storage for model weights
 
 ## Quick Start
 
-### 1. Clone and Setup
+### iOS (Simulator)
 
 ```bash
-git clone https://github.com/Proxie-Studio/llm.git
-cd llm
-git checkout feat/flutter
+# 1. Build native libraries
+./scripts/build_ios.sh --simulator
+
+# 2. Setup Flutter
+flutter pub get
+cd ios && pod install && cd ..
+
+# 3. Run
+flutter run
 ```
 
-### 2. Build Native Libraries
+See [docs/IOS_SETUP.md](docs/IOS_SETUP.md) for detailed iOS instructions.
+
+### Android
 
 ```bash
-# Install Rust Android targets
+# 1. Install Rust Android targets
 rustup target add aarch64-linux-android
 
-# Build for Android arm64
+# 2. Build native libraries
 cd rust/mnn_llm
 ./scripts/build_flutter.sh arm64-v8a
+cd ../..
+
+# 3. Setup Flutter
+flutter pub get
+
+# 4. Run
+flutter run
 ```
 
-This builds the Rust FFI wrapper and copies libraries to `android/app/src/main/jniLibs/arm64-v8a/`.
-
-### 3. Download Model
+### Download Model
 
 Download the Qwen3-4B-Instruct MNN model (~2.7GB):
 

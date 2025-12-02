@@ -1,0 +1,8 @@
+// MNN and Rust FFI library linking
+// Force-load libllm.a to prevent FFI symbols from being stripped
+FRAMEWORK_SEARCH_PATHS = $(inherited) $(PROJECT_DIR)/Frameworks
+LIBRARY_SEARCH_PATHS = $(inherited) $(PROJECT_DIR)/Frameworks
+OTHER_LDFLAGS = $(inherited) -force_load $(PROJECT_DIR)/Frameworks/libllm.a -framework MNN -lc++
+
+// Exclude x86_64 for simulator - our native libs are arm64 only
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64

@@ -1,6 +1,6 @@
 # MNN-LLM Flutter
 
-On-device Large Language Model inference for Flutter using MNN backend.
+On-device Large Language Model inference for Flutter using MNN backend and Flutter Rust Bridge.
 
 ## Features
 
@@ -8,45 +8,54 @@ On-device Large Language Model inference for Flutter using MNN backend.
 - 📱 Android arm64 support
 - 🍎 iOS support (device and simulator)
 - 🔄 Streaming text generation
-- 💬 Chat interface with Qwen3-4B model
+- 👁️ Vision model support (image input)
+- 💬 Chat interface with conversation history
 - 🧠 Memory-mapped file loading for reduced RAM usage
+- 🦀 Type-safe Rust FFI via Flutter Rust Bridge
+
+## Quick Start
+
+```bash
+# Build for iOS Simulator
+./scripts/build_flutter.sh ios-sim
+flutter run
+
+# Build for Android
+./scripts/build_flutter.sh android
+flutter build apk --release
+```
 
 ## Prerequisites
 
 - Flutter SDK 3.10+
-- Rust toolchain
-- For Android: Android NDK r26+
+- Rust toolchain (https://rustup.rs)
 - For iOS: Xcode 15+, CMake (`brew install cmake`)
+- For Android: Android NDK r26+
 - ~4GB storage for model weights
 
-## Quick Start
+## Usage
 
-### iOS (Simulator)
+```dart
+import 'package:llm_flutter/llm_flutter.dart';
 
-```bash
-# 1. Build native libraries
-./scripts/build_ios.sh --simulator
+// Initialize
+await RustLib.init(externalLibrary: await _loadLibrary());
 
-# 2. Setup Flutter
-flutter pub get
-cd ios && pod install && cd ..
+// Create and load model
+final llm = MnnLlm.create(configPath: '/path/to/model');
+await llm.load();
+await llm.tune();
 
-# 3. Run
-flutter run
+// Stream response
+llm.generateStream(prompt: 'Hello!').listen((chunk) {
+  print(chunk);
+});
 ```
 
-See [docs/IOS_SETUP.md](docs/IOS_SETUP.md) for detailed iOS instructions.
+## Documentation
 
-### Android
-
-```bash
-# 1. Install Rust Android targets
-rustup target add aarch64-linux-android
-
-# 2. Build native libraries
-cd rust/mnn_llm
-./scripts/build_flutter.sh arm64-v8a
-cd ../..
+- [Flutter Rust Bridge Setup](docs/FLUTTER_RUST_BRIDGE.md) - Complete FRB integration guide
+- [iOS Setup](docs/IOS_SETUP.md) - iOS-specific instructions
 
 # 3. Setup Flutter
 flutter pub get
@@ -87,26 +96,29 @@ lib/
 ├── main.dart                    # Flutter chat UI
 ├── llm_flutter.dart            # Library exports
 └── src/
-    ├── llm.dart                # High-level Dart API
-    └── llm_bindings_generated.dart  # Auto-generated FFI bindings
+    └── rust/                   # Generated Flutter Rust Bridge bindings
+        ├── api.dart             # Dart API classes
+        ├── frb_generated.dart   # FRB runtime
+        └── frb_generated.io.dart # Platform-specific code
 
 rust/mnn_llm/
 ├── src/
 │   ├── lib.rs                  # Rust library
+│   ├── api.rs                  # Flutter Rust Bridge API
 │   ├── llm.rs                  # LLM wrapper
-│   └── ffi.rs                  # C FFI exports
-├── include/
-│   └── mnn_llm.h              # C header for ffigen
+│   └── frb_generated.rs        # Generated FRB code
+├── flutter_rust_bridge.yaml    # FRB configuration
 └── scripts/
-    └── build_flutter.sh       # Build script
+    └── build.sh               # MNN & Rust build script
+
+scripts/
+└── build_flutter.sh            # Flutter build script (iOS/Android)
 
 android/app/src/main/jniLibs/arm64-v8a/
-├── libc++_shared.so           # C++ runtime
 ├── libMNN.so                  # MNN core
 ├── libMNN_Express.so          # MNN Express API
-├── libllm.so                  # MNN LLM engine
 ├── libMNNOpenCV.so            # OpenCV support
-└── libmnn_llm_rust.so         # Rust FFI wrapper
+└── libllm.so                  # Rust FRB library
 ```
 
 ## API Usage
@@ -116,51 +128,49 @@ android/app/src/main/jniLibs/arm64-v8a/
 ```dart
 import 'package:llm_flutter/llm_flutter.dart';
 
+// Initialize FRB (call once at startup)
+await RustLib.init(externalLibrary: await _loadLibrary());
+
 // Create LLM instance
-final llm = Llm('/path/to/llm_config.json');
+final llm = MnnLlm.create(configPath: '/path/to/llm_config.json');
 
 // Load model
-llm.load();
-llm.tune();
+await llm.load();
+await llm.tune();
 
 // Generate response
-final response = llm.generate('Hello, how are you?');
+final response = await llm.generate(prompt: 'Hello, how are you?');
 print(response);
-
-// Cleanup
-llm.dispose();
 ```
 
 ### Streaming Generation
 
 ```dart
 // Stream tokens as they're generated
-await for (final token in llm.generateStream('Tell me a story')) {
-  stdout.write(token);
-}
+llm.generateStream(prompt: 'Tell me a story').listen((chunk) {
+  print(chunk);
+});
 ```
 
 ### Configuration
 
 ```dart
-// Enable memory-mapped loading (reduces RAM usage)
-final llm = Llm(
-  '/path/to/llm_config.json',
-  useMmap: true,
-  tmpPath: '/path/to/cache/dir',
-);
+// Configure model options
+await llm.setConfig(configJson: jsonEncode({
+  'use_mmap': true,           // Memory-map model files
+  'tmp_path': '/tmp/mnn',     // Cache directory
+}));
 
 // Enable thinking mode (chain-of-thought)
-llm.setThinking(true);
+await llm.setThinking(enabled: true);
 ```
 
-## Regenerating FFI Bindings
+## Regenerating FRB Bindings
 
-If you modify the Rust FFI interface:
+If you modify the Rust API (`rust/mnn_llm/src/api.rs`):
 
 ```bash
-# Regenerate Dart bindings from C header
-dart run ffigen --config ffigen.yaml
+./scripts/build_flutter.sh generate
 ```
 
 ## Troubleshooting

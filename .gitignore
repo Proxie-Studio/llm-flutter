@@ -49,6 +49,7 @@ Qwen3-4B-Instruct-2507-MNN/
 
 # iOS native libraries (built by scripts/build_ios.sh)
 ios/Frameworks/
+rust/mnn_llm/
 
 # Rust build artifacts (large)
 rust/mnn_llm/target/

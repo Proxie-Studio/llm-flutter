@@ -469,128 +469,136 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showSettings() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Settings',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              ListTile(
-                title: const Text('Model Path'),
-                subtitle: Text(_modelPath ?? 'Not selected'),
-                trailing: IconButton(
-                  icon: const Icon(Icons.folder_open),
-                  onPressed: () async {
-                    Navigator.pop(context);
-                    await _pickModelFolder();
+        builder: (context, setModalState) => SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 16,
+              bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Settings',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  title: const Text('Model Path'),
+                  subtitle: Text(_modelPath ?? 'Not selected'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.folder_open),
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      await _pickModelFolder();
+                    },
+                  ),
+                ),
+                SwitchListTile(
+                  title: const Text('Use Memory Mapping'),
+                  subtitle: Text(_useMmap 
+                      ? 'Enabled - may crash on some devices' 
+                      : 'Disabled - uses more RAM'),
+                  value: _useMmap,
+                  onChanged: (value) {
+                    setModalState(() {
+                      _useMmap = value;
+                    });
+                    setState(() {
+                      _useMmap = value;
+                      if (_llm != null) {
+                        _settingsChangedSinceLoad = true;
+                      }
+                    });
+                    _saveSettings();
                   },
                 ),
-              ),
-              SwitchListTile(
-                title: const Text('Use Memory Mapping'),
-                subtitle: Text(_useMmap 
-                    ? 'Enabled - may crash on some devices' 
-                    : 'Disabled - uses more RAM'),
-                value: _useMmap,
-                onChanged: (value) {
-                  setModalState(() {
-                    _useMmap = value;
-                  });
-                  setState(() {
-                    _useMmap = value;
-                    if (_llm != null) {
-                      _settingsChangedSinceLoad = true;
-                    }
-                  });
-                  _saveSettings();
-                },
-              ),
-              SwitchListTile(
-                title: const Text('Thinking Mode'),
-                subtitle: Text(_thinkingEnabled 
-                    ? 'Model shows reasoning' 
-                    : 'Direct answers only'),
-                value: _thinkingEnabled,
-                onChanged: (value) {
-                  setModalState(() {
-                    _thinkingEnabled = value;
-                  });
-                  setState(() {
-                    _thinkingEnabled = value;
-                    if (_llm != null) {
-                      _settingsChangedSinceLoad = true;
-                    }
-                  });
-                  _saveSettings();
-                },
-              ),
-              if (_settingsChangedSinceLoad && _llm != null) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.orange),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.warning_amber, color: Colors.orange),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'Settings changed. Reload model to apply.',
-                          style: TextStyle(color: Colors.orange),
-                        ),
-                      ),
-                    ],
-                  ),
+                SwitchListTile(
+                  title: const Text('Thinking Mode'),
+                  subtitle: Text(_thinkingEnabled 
+                      ? 'Model shows reasoning' 
+                      : 'Direct answers only'),
+                  value: _thinkingEnabled,
+                  onChanged: (value) {
+                    setModalState(() {
+                      _thinkingEnabled = value;
+                    });
+                    setState(() {
+                      _thinkingEnabled = value;
+                      if (_llm != null) {
+                        _settingsChangedSinceLoad = true;
+                      }
+                    });
+                    _saveSettings();
+                  },
                 ),
-                const SizedBox(height: 8),
+                if (_settingsChangedSinceLoad && _llm != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Settings changed. Reload model to apply.',
+                            style: TextStyle(color: Colors.orange),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: _isLoading
+                          ? null
+                          : () {
+                              Navigator.pop(context);
+                              _reloadModel();
+                            },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reload Model'),
+                    ),
+                  ),
+                ],
+                if (_isVisionModel)
+                  const ListTile(
+                    leading: Icon(Icons.visibility, color: Colors.green),
+                    title: Text('Vision Model'),
+                    subtitle: Text('Image input is enabled'),
+                  ),
+                const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: _isLoading
-                        ? null
-                        : () {
+                  child: ElevatedButton(
+                    onPressed: _llm != null
+                        ? () {
                             Navigator.pop(context);
-                            _reloadModel();
-                          },
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Reload Model'),
+                            _resetChat();
+                          }
+                        : null,
+                    child: const Text('Clear Chat History'),
                   ),
                 ),
               ],
-              if (_isVisionModel)
-                const ListTile(
-                  leading: Icon(Icons.visibility, color: Colors.green),
-                  title: Text('Vision Model'),
-                  subtitle: Text('Image input is enabled'),
-                ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _llm != null
-                      ? () {
-                          Navigator.pop(context);
-                          _resetChat();
-                        }
-                      : null,
-                  child: const Text('Clear Chat History'),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

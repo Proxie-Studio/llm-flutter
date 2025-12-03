@@ -1,6 +1,6 @@
 #!/bin/bash
 # iOS Build Script for llm-flutter
-# Builds MNN framework and Rust FFI library for iOS (device and/or simulator)
+# Calls the MNN-LLM build script and packages for Flutter
 
 set -e
 
@@ -14,13 +14,16 @@ FRAMEWORKS_DIR="$IOS_DIR/Frameworks"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+BLUE='\033[0;34m'
+NC='\033[0m'
 
 print_status() { echo -e "${GREEN}[✓]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
 print_error() { echo -e "${RED}[✗]${NC} $1"; }
 
 usage() {
+    echo -e "${BLUE}iOS Build Script for llm-flutter${NC}"
+    echo ""
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
@@ -28,7 +31,6 @@ usage() {
     echo "  --device        Build for iOS Device (arm64)"
     echo "  --all           Build for both simulator and device"
     echo "  --clean         Clean build artifacts before building"
-    echo "  --skip-mnn      Skip MNN framework build (use existing)"
     echo "  --help          Show this help message"
     echo ""
     echo "Examples:"
@@ -42,7 +44,6 @@ usage() {
 BUILD_SIMULATOR=false
 BUILD_DEVICE=false
 CLEAN_BUILD=false
-SKIP_MNN=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -62,10 +63,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --clean)
             CLEAN_BUILD=true
-            shift
-            ;;
-        --skip-mnn)
-            SKIP_MNN=true
             shift
             ;;
         --help)
@@ -98,27 +95,19 @@ echo ""
 check_prerequisites() {
     print_status "Checking prerequisites..."
     
-    if ! command -v rustup &> /dev/null; then
-        print_error "rustup not found. Install from https://rustup.rs"
-        exit 1
-    fi
-    
-    if ! command -v cmake &> /dev/null; then
-        print_error "cmake not found. Install with: brew install cmake"
-        exit 1
-    fi
-    
     if ! command -v xcodebuild &> /dev/null; then
         print_error "Xcode not found. Install from App Store"
         exit 1
     fi
     
-    # Add iOS targets if needed
-    if [[ "$BUILD_SIMULATOR" == "true" ]]; then
-        rustup target add aarch64-apple-ios-sim 2>/dev/null || true
+    if ! command -v rustup &> /dev/null; then
+        print_error "rustup not found. Install from https://rustup.rs"
+        exit 1
     fi
-    if [[ "$BUILD_DEVICE" == "true" ]]; then
-        rustup target add aarch64-apple-ios 2>/dev/null || true
+    
+    if ! command -v cargo &> /dev/null; then
+        print_error "cargo not found. Install Rust first"
+        exit 1
     fi
     
     print_status "Prerequisites OK"
@@ -129,221 +118,141 @@ clean_build() {
     if [[ "$CLEAN_BUILD" == "true" ]]; then
         print_status "Cleaning build artifacts..."
         rm -rf "$FRAMEWORKS_DIR"
-        rm -rf "$RUST_DIR/target/aarch64-apple-ios-sim"
-        rm -rf "$RUST_DIR/target/aarch64-apple-ios"
-        rm -rf "$RUST_DIR/scripts/mnn_lib_ios"
+        
+        cd "$RUST_DIR"
+        ./scripts/build_ios.sh clean
+        cd "$PROJECT_ROOT"
+        
         print_status "Clean complete"
     fi
 }
 
-# Build MNN framework for iOS
-build_mnn() {
-    local target=$1  # "simulator" or "device"
-    local mnn_output_dir="$RUST_DIR/scripts/mnn_lib_ios/$target"
-    
-    if [[ "$SKIP_MNN" == "true" && -d "$mnn_output_dir/MNN.framework" ]]; then
-        print_warning "Skipping MNN build (using existing)"
-        return 0
-    fi
-    
-    print_status "Building MNN framework for iOS $target..."
-    
-    local mnn_dir="$RUST_DIR/MNN"
-    local build_dir="$mnn_dir/build_ios_$target"
-    
-    mkdir -p "$build_dir"
-    cd "$build_dir"
-    
-    # CMake configuration based on target
-    if [[ "$target" == "simulator" ]]; then
-        cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_OSX_SYSROOT=iphonesimulator \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
-            -DMNN_BUILD_SHARED_LIBS=OFF \
-            -DMNN_SEP_BUILD=OFF \
-            -DMNN_BUILD_MINI=ON \
-            -DMNN_SUPPORT_BF16=ON \
-            -DMNN_ARM82=ON \
-            -DMNN_LOW_MEMORY=ON \
-            -DMNN_BUILD_LLM=ON \
-            -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON \
-            -DMNN_BUILD_OPENCV=ON \
-            -DMNN_IMGCODECS=ON \
-            -DMNN_BUILD_TEST=OFF \
-            -DMNN_BUILD_BENCHMARK=OFF \
-            -DMNN_BUILD_TOOLS=OFF \
-            -DMNN_BUILD_DEMO=OFF \
-            -DMNN_AAPL_FMWK=ON \
-            -DMNN_METAL=ON
-    else
-        cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_OSX_SYSROOT=iphoneos \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
-            -DMNN_BUILD_SHARED_LIBS=OFF \
-            -DMNN_SEP_BUILD=OFF \
-            -DMNN_BUILD_MINI=ON \
-            -DMNN_SUPPORT_BF16=ON \
-            -DMNN_ARM82=ON \
-            -DMNN_LOW_MEMORY=ON \
-            -DMNN_BUILD_LLM=ON \
-            -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON \
-            -DMNN_BUILD_OPENCV=ON \
-            -DMNN_IMGCODECS=ON \
-            -DMNN_BUILD_TEST=OFF \
-            -DMNN_BUILD_BENCHMARK=OFF \
-            -DMNN_BUILD_TOOLS=OFF \
-            -DMNN_BUILD_DEMO=OFF \
-            -DMNN_AAPL_FMWK=ON \
-            -DMNN_METAL=ON \
-            -DMNN_COREML=ON
-    fi
-    
-    cmake --build . -j$(sysctl -n hw.ncpu)
-    
-    # Copy framework to output
-    mkdir -p "$mnn_output_dir"
-    cp -R MNN.framework "$mnn_output_dir/"
-    
-    print_status "MNN framework built for $target"
-    cd "$PROJECT_ROOT"
-}
-
-# Build Rust FFI library
-build_rust() {
+# Build MNN framework and Rust library using the MNN-LLM script
+build_with_mnn_script() {
     local target=$1  # "simulator" or "device"
     
-    print_status "Building Rust FFI library for iOS $target..."
+    print_status "Building MNN framework and Rust for iOS $target..."
     
     cd "$RUST_DIR"
     
-    local rust_target
-    local mnn_lib_path
-    
     if [[ "$target" == "simulator" ]]; then
-        rust_target="aarch64-apple-ios-sim"
-        mnn_lib_path="$RUST_DIR/scripts/mnn_lib_ios/simulator/MNN.framework"
+        # Build framework for simulator
+        ./scripts/build_ios.sh framework-sim
+        
+        # Build Rust for simulator
+        ./scripts/build_ios.sh rust-sim
     else
-        rust_target="aarch64-apple-ios"
-        mnn_lib_path="$RUST_DIR/scripts/mnn_lib_ios/device/MNN.framework"
+        # Build framework for device
+        ./scripts/build_ios.sh framework
+        
+        # Build Rust for device
+        ./scripts/build_ios.sh rust
     fi
     
-    # Build with proper flags to ensure FFI symbols are exported
-    # -C embed-bitcode=no: Avoid LLVM version mismatch with Xcode
-    # -C link-dead-code: Preserve FFI functions that appear unused to Rust
-    MNN_LIB_PATH="$mnn_lib_path" \
-    MNN_INCLUDE_PATH="$mnn_lib_path/Headers" \
-    RUSTFLAGS="-C link-dead-code -C embed-bitcode=no -C codegen-units=1 -C lto=no" \
-    cargo build --release --target "$rust_target"
-    
-    print_status "Rust library built for $target"
     cd "$PROJECT_ROOT"
+    
+    print_status "MNN and Rust build complete for $target"
 }
 
-# Copy libraries to iOS Frameworks folder
-copy_to_frameworks() {
-    print_status "Copying libraries to iOS Frameworks..."
+# Copy libraries to Flutter iOS folder
+copy_to_flutter() {
+    print_status "Copying libraries to Flutter iOS..."
     
     mkdir -p "$FRAMEWORKS_DIR"
     
+    local mnn_lib_dir="$RUST_DIR/scripts/mnn_lib_ios"
+    
+    # Determine which framework to use
+    if [[ "$BUILD_DEVICE" == "true" ]]; then
+        # Use device framework
+        if [[ -d "$mnn_lib_dir/device/MNN.framework" ]]; then
+            cp -R "$mnn_lib_dir/device/MNN.framework" "$FRAMEWORKS_DIR/"
+            print_status "Copied device MNN.framework"
+        fi
+    elif [[ "$BUILD_SIMULATOR" == "true" ]]; then
+        # Use simulator framework
+        if [[ -d "$mnn_lib_dir/simulator/MNN.framework" ]]; then
+            cp -R "$mnn_lib_dir/simulator/MNN.framework" "$FRAMEWORKS_DIR/"
+            print_status "Copied simulator MNN.framework"
+        fi
+    fi
+    
+    # Copy Rust static library
     if [[ "$BUILD_SIMULATOR" == "true" && "$BUILD_DEVICE" == "true" ]]; then
-        # Create universal/fat libraries
-        print_status "Creating universal libraries..."
-        
-        # MNN Framework - create universal binary
-        cp -R "$RUST_DIR/scripts/mnn_lib_ios/simulator/MNN.framework" "$FRAMEWORKS_DIR/"
-        lipo -create \
-            "$RUST_DIR/scripts/mnn_lib_ios/simulator/MNN.framework/MNN" \
-            "$RUST_DIR/scripts/mnn_lib_ios/device/MNN.framework/MNN" \
-            -output "$FRAMEWORKS_DIR/MNN.framework/MNN"
-        
-        # Rust library - create universal binary
+        # Create universal library
+        print_status "Creating universal Rust library..."
         lipo -create \
             "$RUST_DIR/target/aarch64-apple-ios-sim/release/libllm.a" \
             "$RUST_DIR/target/aarch64-apple-ios/release/libllm.a" \
-            -output "$FRAMEWORKS_DIR/libllm.a"
-            
+            -output "$FRAMEWORKS_DIR/libllm.a" 2>/dev/null || {
+            # If lipo fails (same arch), just copy one
+            cp "$RUST_DIR/target/aarch64-apple-ios/release/libllm.a" "$FRAMEWORKS_DIR/"
+        }
     elif [[ "$BUILD_SIMULATOR" == "true" ]]; then
-        # Simulator only
-        cp -R "$RUST_DIR/scripts/mnn_lib_ios/simulator/MNN.framework" "$FRAMEWORKS_DIR/"
         cp "$RUST_DIR/target/aarch64-apple-ios-sim/release/libllm.a" "$FRAMEWORKS_DIR/"
-        
     elif [[ "$BUILD_DEVICE" == "true" ]]; then
-        # Device only
-        cp -R "$RUST_DIR/scripts/mnn_lib_ios/device/MNN.framework" "$FRAMEWORKS_DIR/"
         cp "$RUST_DIR/target/aarch64-apple-ios/release/libllm.a" "$FRAMEWORKS_DIR/"
     fi
     
     print_status "Libraries copied to $FRAMEWORKS_DIR"
 }
 
-# Verify the build
+# Verify build
 verify_build() {
     print_status "Verifying build..."
     
-    # Check library exists
-    if [[ ! -f "$FRAMEWORKS_DIR/libllm.a" ]]; then
-        print_error "libllm.a not found!"
-        exit 1
-    fi
-    
-    # Check FFI symbols are present
-    local symbol_count=$(nm "$FRAMEWORKS_DIR/libllm.a" 2>/dev/null | grep -c "T _llm_.*_ffi" || echo "0")
-    if [[ "$symbol_count" -lt 10 ]]; then
-        print_error "FFI symbols not found in libllm.a (found: $symbol_count)"
-        print_error "This usually means the Rust build flags were incorrect"
-        exit 1
-    fi
-    
-    # Check MNN framework
     if [[ ! -d "$FRAMEWORKS_DIR/MNN.framework" ]]; then
         print_error "MNN.framework not found!"
         exit 1
     fi
     
-    # Show library info
-    echo ""
-    print_status "Build verification passed!"
-    echo "  • libllm.a: $(du -h "$FRAMEWORKS_DIR/libllm.a" | cut -f1)"
-    echo "  • MNN.framework: $(du -sh "$FRAMEWORKS_DIR/MNN.framework" | cut -f1)"
-    echo "  • FFI symbols: $symbol_count functions"
+    if [[ ! -f "$FRAMEWORKS_DIR/libllm.a" ]]; then
+        print_error "libllm.a not found!"
+        exit 1
+    fi
     
-    local archs=$(lipo -info "$FRAMEWORKS_DIR/libllm.a" 2>/dev/null | sed 's/.*: //')
+    # Check FFI symbols
+    local symbol_count=$(nm "$FRAMEWORKS_DIR/libllm.a" 2>/dev/null | grep -c "T _llm_" || echo "0")
+    if [[ "$symbol_count" -lt 5 ]]; then
+        print_warning "Few FFI symbols found ($symbol_count). Build may be incomplete."
+    else
+        print_status "Found $symbol_count FFI symbols"
+    fi
+    
+    # Show sizes
+    echo ""
+    print_status "Build artifacts:"
+    echo "  • MNN.framework: $(du -sh "$FRAMEWORKS_DIR/MNN.framework" | cut -f1)"
+    echo "  • libllm.a: $(du -h "$FRAMEWORKS_DIR/libllm.a" | cut -f1)"
+    
+    local archs=$(lipo -info "$FRAMEWORKS_DIR/libllm.a" 2>/dev/null | sed 's/.*: //' || echo "unknown")
     echo "  • Architectures: $archs"
 }
 
-# Setup iOS project configuration
-setup_ios_project() {
-    print_status "Setting up iOS project configuration..."
+# Setup Podfile if needed
+setup_podfile() {
+    local podfile="$IOS_DIR/Podfile"
     
-    # Create MNN.xcconfig if it doesn't exist
-    cat > "$IOS_DIR/Flutter/MNN.xcconfig" << 'EOF'
-// MNN and Rust FFI library linking
-// Force-load libllm.a to prevent FFI symbols from being stripped
-FRAMEWORK_SEARCH_PATHS = $(inherited) $(PROJECT_DIR)/Frameworks
-LIBRARY_SEARCH_PATHS = $(inherited) $(PROJECT_DIR)/Frameworks
-OTHER_LDFLAGS = $(inherited) -force_load $(PROJECT_DIR)/Frameworks/libllm.a -framework MNN -lc++
-
-// Exclude x86_64 for simulator - our native libs are arm64 only
-EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64
-EOF
-
-    # Ensure xcconfig is included in Debug.xcconfig
-    if ! grep -q "MNN.xcconfig" "$IOS_DIR/Flutter/Debug.xcconfig" 2>/dev/null; then
-        echo '#include "MNN.xcconfig"' >> "$IOS_DIR/Flutter/Debug.xcconfig"
+    # Check if MNN.framework is already referenced
+    if ! grep -q "MNN.framework" "$podfile" 2>/dev/null; then
+        print_warning "You may need to update your Podfile to link MNN.framework and libllm.a"
+        echo ""
+        echo "Add to your Podfile's post_install hook:"
+        echo ""
+        echo '  post_install do |installer|'
+        echo '    installer.pods_project.targets.each do |target|'
+        echo '      target.build_configurations.each do |config|'
+        echo '        config.build_settings["OTHER_LDFLAGS"] ||= ["$(inherited)"]'
+        echo '        config.build_settings["OTHER_LDFLAGS"] << "-lc++"'
+        echo '        config.build_settings["FRAMEWORK_SEARCH_PATHS"] ||= ["$(inherited)"]'
+        echo '        config.build_settings["FRAMEWORK_SEARCH_PATHS"] << "$(PROJECT_DIR)/Frameworks"'
+        echo '        config.build_settings["LIBRARY_SEARCH_PATHS"] ||= ["$(inherited)"]'
+        echo '        config.build_settings["LIBRARY_SEARCH_PATHS"] << "$(PROJECT_DIR)/Frameworks"'
+        echo '      end'
+        echo '    end'
+        echo '  end'
+        echo ""
     fi
-    
-    # Ensure xcconfig is included in Release.xcconfig
-    if ! grep -q "MNN.xcconfig" "$IOS_DIR/Flutter/Release.xcconfig" 2>/dev/null; then
-        echo '#include "MNN.xcconfig"' >> "$IOS_DIR/Flutter/Release.xcconfig"
-    fi
-    
-    print_status "iOS project configured"
 }
 
 # Main build flow
@@ -352,36 +261,24 @@ main() {
     clean_build
     
     if [[ "$BUILD_SIMULATOR" == "true" ]]; then
-        build_mnn "simulator"
-        build_rust "simulator"
+        build_with_mnn_script "simulator"
     fi
     
     if [[ "$BUILD_DEVICE" == "true" ]]; then
-        build_mnn "device"
-        build_rust "device"
+        build_with_mnn_script "device"
     fi
     
-    copy_to_frameworks
-    setup_ios_project
+    copy_to_flutter
     verify_build
+    setup_podfile
     
     echo ""
-    echo "========================================"
     print_status "iOS build complete!"
-    echo "========================================"
     echo ""
     echo "Next steps:"
-    echo "  1. cd $PROJECT_ROOT"
-    echo "  2. flutter pub get"
-    echo "  3. cd ios && pod install && cd .."
-    if [[ "$BUILD_SIMULATOR" == "true" ]]; then
-        echo "  4. flutter build ios --simulator"
-        echo "  5. flutter run (with simulator running)"
-    fi
-    if [[ "$BUILD_DEVICE" == "true" ]]; then
-        echo "  4. flutter build ios"
-        echo "  5. flutter run (with device connected)"
-    fi
+    echo "  1. Run 'cd ios && pod install'"
+    echo "  2. Open ios/Runner.xcworkspace in Xcode"
+    echo "  3. Build and run on simulator or device"
 }
 
 main

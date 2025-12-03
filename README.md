@@ -16,181 +16,315 @@ On-device Large Language Model inference for Flutter using MNN backend and Flutt
 ## Quick Start
 
 ```bash
-# Build for iOS Simulator
-./scripts/build_flutter.sh ios-sim
-flutter run
+# Clone the repository
+git clone https://github.com/Proxie-Studio/llm-flutter.git
+cd llm-flutter
 
-# Build for Android
-./scripts/build_flutter.sh android
-flutter build apk --release
+# Build for your platform
+./scripts/build.sh ios-sim      # iOS Simulator
+./scripts/build.sh ios-device   # iOS Device
+./scripts/build.sh android      # Android arm64
+
+# Run
+cd ios && pod install && cd ..  # iOS only
+flutter run
 ```
 
 ## Prerequisites
 
+### All Platforms
 - Flutter SDK 3.10+
 - Rust toolchain (https://rustup.rs)
-- For iOS: Xcode 15+, CMake (`brew install cmake`)
-- For Android: Android NDK r26+
-- ~4GB storage for model weights
+- CMake (`brew install cmake` on macOS)
+- Flutter Rust Bridge CLI: `cargo install flutter_rust_bridge_codegen`
 
-## Usage
+### iOS
+- Xcode 15+ with command line tools
+- iOS deployment target: 12.0+
+- Add Rust targets:
+  ```bash
+  rustup target add aarch64-apple-ios        # Device
+  rustup target add aarch64-apple-ios-sim    # Simulator
+  ```
 
-```dart
-import 'package:llm_flutter/llm_flutter.dart';
+### Android
+- Android NDK r26+ (set `ANDROID_NDK` or `NDK_HOME` env var)
+- Add Rust target:
+  ```bash
+  rustup target add aarch64-linux-android
+  ```
 
-// Initialize
-await RustLib.init(externalLibrary: await _loadLibrary());
+## Build System
 
-// Create and load model
-final llm = MnnLlm.create(configPath: '/path/to/model');
-await llm.load();
-await llm.tune();
-
-// Stream response
-llm.generateStream(prompt: 'Hello!').listen((chunk) {
-  print(chunk);
-});
-```
-
-## Documentation
-
-- [Flutter Rust Bridge Setup](docs/FLUTTER_RUST_BRIDGE.md) - Complete FRB integration guide
-- [iOS Setup](docs/IOS_SETUP.md) - iOS-specific instructions
-
-# 3. Setup Flutter
-flutter pub get
-
-# 4. Run
-flutter run
-```
-
-### Download Model
-
-Download the Qwen3-4B-Instruct MNN model (~2.7GB):
+The unified build script handles everything: MNN compilation → Rust compilation → FRB codegen → Library copying.
 
 ```bash
-# On your Android device or emulator
-adb shell mkdir -p /data/local/tmp/Qwen3-4B-Instruct-2507-MNN
-adb push /path/to/model/* /data/local/tmp/Qwen3-4B-Instruct-2507-MNN/
+./scripts/build.sh <platform> [options]
 ```
 
-The model directory should contain:
-- `llm_config.json` - Model configuration
-- `llm.mnn` - Model weights
-- `tokenizer.txt` - Tokenizer vocabulary
+### Platforms
 
-### 4. Run the App
+| Platform | Description | Output |
+|----------|-------------|--------|
+| `android` | Android arm64-v8a | `android/app/src/main/jniLibs/` |
+| `ios-sim` | iOS Simulator (arm64 Mac) | `ios/Frameworks/` |
+| `ios-device` | iOS Device (arm64) | `ios/Frameworks/` |
+| `all` | Build all platforms | All locations |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--skip-mnn` | Skip MNN compilation (reuse existing) |
+| `--skip-rust` | Skip Rust compilation (reuse existing) |
+| `--skip-frb` | Skip FRB codegen (reuse existing bindings) |
+| `--clean` | Clean before building |
+
+### Other Commands
 
 ```bash
-# Get Flutter dependencies
-flutter pub get
+./scripts/build.sh generate    # Run FRB codegen only
+./scripts/build.sh clean       # Clean all build artifacts
+```
 
-# Run on Android device/emulator
-flutter run
+### Examples
+
+```bash
+# Full build from scratch
+./scripts/build.sh ios-sim
+
+# Rebuild only Rust after code changes
+./scripts/build.sh ios-sim --skip-mnn
+
+# Regenerate Dart bindings only
+./scripts/build.sh generate
+
+# Clean everything and rebuild
+./scripts/build.sh android --clean
 ```
 
 ## Project Structure
 
 ```
-lib/
-├── main.dart                    # Flutter chat UI
-├── llm_flutter.dart            # Library exports
-└── src/
-    └── rust/                   # Generated Flutter Rust Bridge bindings
-        ├── api.dart             # Dart API classes
-        ├── frb_generated.dart   # FRB runtime
-        └── frb_generated.io.dart # Platform-specific code
-
-rust/mnn_llm/
-├── src/
-│   ├── lib.rs                  # Rust library
-│   ├── api.rs                  # Flutter Rust Bridge API
-│   ├── llm.rs                  # LLM wrapper
-│   └── frb_generated.rs        # Generated FRB code
-├── flutter_rust_bridge.yaml    # FRB configuration
-└── scripts/
-    └── build.sh               # MNN & Rust build script
-
-scripts/
-└── build_flutter.sh            # Flutter build script (iOS/Android)
-
-android/app/src/main/jniLibs/arm64-v8a/
-├── libMNN.so                  # MNN core
-├── libMNN_Express.so          # MNN Express API
-├── libMNNOpenCV.so            # OpenCV support
-└── libllm.so                  # Rust FRB library
+llm-flutter/
+├── scripts/
+│   └── build.sh                    # Unified build script
+├── lib/
+│   ├── main.dart                   # Flutter chat UI
+│   ├── llm_flutter.dart            # Library exports
+│   └── src/rust/                   # Generated FRB Dart bindings
+├── rust/mnn_llm/
+│   ├── src/
+│   │   ├── lib.rs                  # Rust library entry
+│   │   ├── api.rs                  # FRB API definitions
+│   │   └── llm.rs                  # MNN LLM wrapper
+│   ├── cpp/
+│   │   ├── llm_c_api.cpp           # C++ wrapper for MNN
+│   │   └── llm_c_api.h             # C API header
+│   ├── MNN/                        # MNN submodule
+│   ├── flutter_rust_bridge.yaml    # FRB config
+│   └── scripts/
+│       ├── build.sh                # Android/host builds
+│       └── build_ios.sh            # iOS builds
+├── ios/
+│   ├── Frameworks/                 # MNN.framework + libllm.a
+│   └── Podfile
+└── android/
+    └── app/src/main/jniLibs/       # .so libraries
 ```
+
+## Build Outputs
+
+### iOS
+
+After building for iOS, the following are copied to `ios/Frameworks/`:
+
+| File | Description |
+|------|-------------|
+| `MNN.framework` | MNN framework with Metal support |
+| `libllm.a` | Static library (Rust + C++ wrapper) |
+
+The Podfile links these automatically.
+
+### Android
+
+After building for Android, the following are copied to `android/app/src/main/jniLibs/arm64-v8a/`:
+
+| File | Description |
+|------|-------------|
+| `libMNN.so` | MNN core library |
+| `libllm.so` | LLM engine |
+| `libMNN_Express.so` | MNN Express API |
+| `libmnn_llm_frb.so` | Rust FRB library |
+| `libc++_shared.so` | C++ runtime |
 
 ## API Usage
 
-### Basic Generation
+### Initialize
 
 ```dart
 import 'package:llm_flutter/llm_flutter.dart';
 
-// Initialize FRB (call once at startup)
-await RustLib.init(externalLibrary: await _loadLibrary());
-
-// Create LLM instance
-final llm = MnnLlm.create(configPath: '/path/to/llm_config.json');
-
-// Load model
-await llm.load();
-await llm.tune();
-
-// Generate response
-final response = await llm.generate(prompt: 'Hello, how are you?');
-print(response);
+// Call once at app startup
+await RustLib.init();
 ```
 
-### Streaming Generation
+### Create and Load Model
 
 ```dart
-// Stream tokens as they're generated
+final llm = MnnLlm.create(
+  configPath: '/path/to/model/llm_config.json',
+  useMmap: true,  // Memory-map for reduced RAM
+);
+
+await llm.load();
+await llm.tune();  // Warmup run
+```
+
+### Generate Text
+
+```dart
+// Blocking generation
+final response = await llm.generate(prompt: 'Hello!');
+
+// Streaming generation
 llm.generateStream(prompt: 'Tell me a story').listen((chunk) {
-  print(chunk);
+  print(chunk);  // Each token as it's generated
 });
+```
+
+### Vision Models
+
+```dart
+// Check if model supports images
+if (llm.isVisionModel()) {
+  // Set image before generation
+  await llm.setImage(imagePath: '/path/to/image.jpg');
+  final response = await llm.generate(prompt: 'What is in this image?');
+}
 ```
 
 ### Configuration
 
 ```dart
-// Configure model options
-await llm.setConfig(configJson: jsonEncode({
-  'use_mmap': true,           // Memory-map model files
-  'tmp_path': '/tmp/mnn',     // Cache directory
-}));
-
-// Enable thinking mode (chain-of-thought)
+// Enable thinking mode (shows reasoning)
 await llm.setThinking(enabled: true);
+
+// Get context info
+final info = llm.getContextInfo();
+print('History: ${info.historyLen} tokens');
+print('Context: ${info.contextLen} max');
+
+// Reset conversation
+await llm.reset();
 ```
 
-## Regenerating FRB Bindings
+## Model Setup
 
-If you modify the Rust API (`rust/mnn_llm/src/api.rs`):
+### Download Model
+
+Get an MNN-converted model (e.g., Qwen3-0.6B for testing):
 
 ```bash
-./scripts/build_flutter.sh generate
+# Example: Download from HuggingFace
+huggingface-cli download mnn-team/Qwen3-0.6B-MNN --local-dir ~/Models/Qwen3-0.6B
+```
+
+### Copy to Device
+
+**iOS Simulator:**
+```bash
+# Models go in app's Documents directory
+# Use the app's file picker or airdrop
+```
+
+**Android:**
+```bash
+adb push ~/Models/Qwen3-0.6B /data/local/tmp/
+adb shell chmod -R 755 /data/local/tmp/Qwen3-0.6B
+```
+
+### Model Directory Structure
+
+```
+Qwen3-0.6B/
+├── llm_config.json    # Model configuration (required)
+├── llm.mnn            # Model weights
+├── tokenizer.txt      # Tokenizer vocabulary
+└── embeddings_bf16.bin # (optional) Embeddings
 ```
 
 ## Troubleshooting
 
-### App crashes on startup
-- Ensure all native libraries are in `jniLibs/arm64-v8a/`
-- Check library loading order (libc++_shared.so must load first)
+### Build Errors
 
-### Out of memory errors
-- Enable mmap: `Llm(path, useMmap: true)`
-- Ensure device has 4GB+ RAM
-- Use a smaller model variant
+**MNN build fails:**
+```bash
+# Clean and retry
+./scripts/build.sh clean
+./scripts/build.sh ios-sim
+```
 
-### Model not found
-- Verify model path: `/data/local/tmp/Qwen3-4B-Instruct-2507-MNN/llm_config.json`
-- Check file permissions: `adb shell chmod -R 755 /data/local/tmp/Qwen3-4B-Instruct-2507-MNN`
+**Rust build fails with missing symbols:**
+```bash
+# Ensure MNN was built first
+./scripts/build.sh ios-sim  # Full build, not --skip-mnn
+```
 
-### Emulator issues
-- Emulators have limited storage; use a real device for best results
-- Allocate at least 6GB storage to the emulator AVD
+**FRB codegen fails:**
+```bash
+# Update flutter_rust_bridge
+cargo install flutter_rust_bridge_codegen --force
+```
+
+### Runtime Errors
+
+**App crashes on startup (iOS):**
+- Check that `MNN.framework` and `libllm.a` are in `ios/Frameworks/`
+- Run `pod install` after copying frameworks
+
+**Model not loading:**
+- Verify config path points to `llm_config.json`
+- Check file permissions on device
+
+**Out of memory:**
+- Enable mmap: `useMmap: true`
+- Use a smaller model (0.6B or 1.8B)
+- Close other apps
+
+### iOS Simulator Specific
+
+**Architecture mismatch:**
+```bash
+# Ensure you built for simulator, not device
+./scripts/build.sh ios-sim  # NOT ios-device
+```
+
+**Framework not found:**
+```bash
+cd ios && pod install && cd ..
+```
+
+## Development
+
+### Modifying Rust API
+
+1. Edit `rust/mnn_llm/src/api.rs`
+2. Regenerate bindings:
+   ```bash
+   ./scripts/build.sh generate
+   ```
+3. Rebuild:
+   ```bash
+   ./scripts/build.sh ios-sim --skip-mnn
+   ```
+
+### Adding New Platforms
+
+The build system supports adding new targets by extending:
+- `scripts/build.sh` - Main orchestration
+- `rust/mnn_llm/scripts/build_ios.sh` - iOS-specific builds
+- `rust/mnn_llm/scripts/build.sh` - Android/host builds
 
 ## License
 

@@ -837,6 +837,17 @@ class RustLibWire implements BaseWire {
   late final _wire__crate__api__MnnLlm_detokenize = _wire__crate__api__MnnLlm_detokenizePtr
       .asFunction<void Function(int, int, ffi.Pointer<wire_cst_list_prim_i_32_loose>)>();
 
+  void wire__crate__api__MnnLlm_dispose(int port_, int that) {
+    return _wire__crate__api__MnnLlm_dispose(port_, that);
+  }
+
+  late final _wire__crate__api__MnnLlm_disposePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int64, ffi.UintPtr)>>(
+        'frbgen_llm_flutter_wire__crate__api__MnnLlm_dispose',
+      );
+  late final _wire__crate__api__MnnLlm_dispose = _wire__crate__api__MnnLlm_disposePtr
+      .asFunction<void Function(int, int)>();
+
   WireSyncRust2DartDco wire__crate__api__MnnLlm_dump_config(int that) {
     return _wire__crate__api__MnnLlm_dump_config(that);
   }

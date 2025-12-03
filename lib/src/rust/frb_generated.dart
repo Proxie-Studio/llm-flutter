@@ -62,10 +62,10 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => -1186072359;
+  int get rustContentHash => -118363328;
 
   static const kDefaultExternalLibraryLoaderConfig = ExternalLibraryLoaderConfig(
-    stem: 'llm',
+    stem: 'mnn_llm_frb',
     ioDirectory: 'rust/mnn_llm/target/release/',
     webPrefix: 'pkg/',
   );
@@ -79,6 +79,8 @@ abstract class RustLibApi extends BaseApi {
   MnnLlm crateApiMnnLlmCreate({required String configPath});
 
   Future<String> crateApiMnnLlmDetokenize({required MnnLlm that, required List<int> tokens});
+
+  Future<void> crateApiMnnLlmDispose({required MnnLlm that});
 
   String crateApiMnnLlmDumpConfig({required MnnLlm that});
 
@@ -226,6 +228,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiMnnLlmDetokenizeConstMeta =>
       const TaskConstMeta(debugName: "MnnLlm_detokenize", argNames: ["that", "tokens"]);
+
+  @override
+  Future<void> crateApiMnnLlmDispose({required MnnLlm that}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          var arg0 = cst_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerMnnLlm(that);
+          return wire.wire__crate__api__MnnLlm_dispose(port_, arg0);
+        },
+        codec: DcoCodec(decodeSuccessData: dco_decode_unit, decodeErrorData: dco_decode_String),
+        constMeta: kCrateApiMnnLlmDisposeConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMnnLlmDisposeConstMeta =>
+      const TaskConstMeta(debugName: "MnnLlm_dispose", argNames: ["that"]);
 
   @override
   String crateApiMnnLlmDumpConfig({required MnnLlm that}) {
@@ -1132,6 +1153,12 @@ class MnnLlmImpl extends RustOpaque implements MnnLlm {
   /// Decode tokens to text
   Future<String> detokenize({required List<int> tokens}) =>
       RustLib.instance.api.crateApiMnnLlmDetokenize(that: this, tokens: tokens);
+
+  /// Explicitly release the model and free all resources
+  ///
+  /// Call this before creating a new model to ensure clean memory state.
+  /// After calling dispose, this instance should not be used.
+  Future<void> dispose() => RustLib.instance.api.crateApiMnnLlmDispose(that: this);
 
   /// Get the model's current configuration as JSON
   String dumpConfig() => RustLib.instance.api.crateApiMnnLlmDumpConfig(that: this);

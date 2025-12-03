@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -103,7 +102,9 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _modelPath;
   String? _selectedImagePath;
   bool _isVisionModel = false;
-  bool _useMmap = true;
+  bool _useMmap = false;  // Disabled by default - can cause crashes on some devices
+  bool _thinkingEnabled = true;
+  bool _settingsChangedSinceLoad = false;  // Track if settings changed after model load
   StreamSubscription<String>? _streamSubscription;
 
   @override
@@ -121,7 +122,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _modelPath = prefs.getString('model_path');
-      _useMmap = prefs.getBool('use_mmap') ?? true;
+      _useMmap = prefs.getBool('use_mmap') ?? false;  // Default false - mmap can crash on some devices
+      _thinkingEnabled = prefs.getBool('thinking_enabled') ?? true;
     });
   }
 
@@ -151,6 +153,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await prefs.setString('model_path', _modelPath!);
     }
     await prefs.setBool('use_mmap', _useMmap);
+    await prefs.setBool('thinking_enabled', _thinkingEnabled);
   }
 
   Future<void> _pickModelFolder() async {
@@ -223,11 +226,20 @@ class _ChatScreenState extends State<ChatScreen> {
       _llm = MnnLlm.create(configPath: _modelPath!);
       
       // Configure mmap and tmp_path
-      final tmpDir = await getTemporaryDirectory();
+      // Use app's cache directory and ensure it exists
+      final cacheDir = await getTemporaryDirectory();
+      final mnnCacheDir = Directory('${cacheDir.path}/mnn_cache');
+      if (!await mnnCacheDir.exists()) {
+        await mnnCacheDir.create(recursive: true);
+      }
+      // MNN expects tmp_path to end with /
+      final tmpPath = '${mnnCacheDir.path}/';
+      
       final config = jsonEncode({
         'use_mmap': _useMmap,
-        'tmp_path': tmpDir.path,
+        'tmp_path': tmpPath,
       });
+      debugPrint('MNN Config: $config');
       await _llm!.setConfig(configJson: config);
       
       // Load model
@@ -235,6 +247,9 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!success) {
         throw Exception('Model loading returned false');
       }
+      
+      // Set thinking mode
+      await _llm!.setThinking(enabled: _thinkingEnabled);
       
       // Tune for performance
       await _llm!.tune();
@@ -256,6 +271,11 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       }
+      
+      // Reset settings changed flag after successful load
+      setState(() {
+        _settingsChangedSinceLoad = false;
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -271,6 +291,40 @@ class _ChatScreenState extends State<ChatScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  /// Unload the current model (destroy instance and clear state)
+  Future<void> _unloadModel() async {
+    _streamSubscription?.cancel();
+    _streamSubscription = null;
+    
+    // Explicitly dispose the model to free native resources
+    final oldLlm = _llm;
+    setState(() {
+      _llm = null;
+      _messages.clear();
+      _currentResponse = '';
+      _isVisionModel = false;
+      _isGenerating = false;
+    });
+    
+    // Call dispose to ensure native resources are freed immediately
+    if (oldLlm != null) {
+      try {
+        await oldLlm.dispose();
+        debugPrint('Model disposed successfully');
+      } catch (e) {
+        debugPrint('Error disposing model: $e');
+      }
+      // Small delay to ensure cleanup completes
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+  }
+
+  /// Reload model with current settings (unload + load)
+  Future<void> _reloadModel() async {
+    await _unloadModel();
+    await _loadModel();
   }
 
   Future<void> _pickImage() async {
@@ -440,7 +494,9 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               SwitchListTile(
                 title: const Text('Use Memory Mapping'),
-                subtitle: const Text('Reduces RAM usage for large models'),
+                subtitle: Text(_useMmap 
+                    ? 'Enabled - may crash on some devices' 
+                    : 'Disabled - uses more RAM'),
                 value: _useMmap,
                 onChanged: (value) {
                   setModalState(() {
@@ -448,10 +504,73 @@ class _ChatScreenState extends State<ChatScreen> {
                   });
                   setState(() {
                     _useMmap = value;
+                    if (_llm != null) {
+                      _settingsChangedSinceLoad = true;
+                    }
                   });
                   _saveSettings();
                 },
               ),
+              SwitchListTile(
+                title: const Text('Thinking Mode'),
+                subtitle: Text(_thinkingEnabled 
+                    ? 'Model shows reasoning' 
+                    : 'Direct answers only'),
+                value: _thinkingEnabled,
+                onChanged: (value) {
+                  setModalState(() {
+                    _thinkingEnabled = value;
+                  });
+                  setState(() {
+                    _thinkingEnabled = value;
+                    if (_llm != null) {
+                      _settingsChangedSinceLoad = true;
+                    }
+                  });
+                  _saveSettings();
+                },
+              ),
+              if (_settingsChangedSinceLoad && _llm != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber, color: Colors.orange),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Settings changed. Reload model to apply.',
+                          style: TextStyle(color: Colors.orange),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _isLoading
+                        ? null
+                        : () {
+                            Navigator.pop(context);
+                            _reloadModel();
+                          },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Reload Model'),
+                  ),
+                ),
+              ],
               if (_isVisionModel)
                 const ListTile(
                   leading: Icon(Icons.visibility, color: Colors.green),
@@ -637,7 +756,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           vertical: 8,
                         ),
                       ),
-                      enabled: _llm != null && !_isGenerating,
+                      enabled: _llm != null && !_isGenerating && !_isLoading,
                       maxLines: null,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _sendMessage(),
@@ -664,77 +783,94 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
           // Full-screen loading overlay until model is loaded
           if (showLoadingOverlay)
-            Container(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Image.asset(
-                      'assets/icon.png',
-                      width: 120,
-                      height: 120,
-                      errorBuilder: (context, error, stackTrace) => Icon(
-                        Icons.chat_bubble_rounded,
-                        size: 120,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'NorrChat',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'On-device AI Assistant',
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                    const SizedBox(height: 48),
-                    if (_isLoading) ...[
-                      const CircularProgressIndicator(),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Loading model...',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                      ),
-                    ] else ...[
-                      FilledButton.icon(
-                        onPressed: _modelPath != null ? _loadModel : null,
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('Load Model'),
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: _pickModelFolder,
-                        icon: const Icon(Icons.folder_open),
-                        label: Text(_modelPath != null ? 'Change Model' : 'Select Model Folder'),
-                      ),
-                      if (_modelPath != null) ...[
-                        const SizedBox(height: 16),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 32),
-                          child: Text(
-                            _modelPath!.split('/').last,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
+            Positioned.fill(
+              child: AbsorbPointer(
+                // Only absorb touches during loading, not on initial screen with buttons
+                absorbing: _isLoading,
+                child: Container(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Image.asset(
+                          'assets/icon.png',
+                          width: 120,
+                          height: 120,
+                          errorBuilder: (context, error, stackTrace) => Icon(
+                            Icons.chat_bubble_rounded,
+                            size: 120,
+                            color: Theme.of(context).colorScheme.primary,
                           ),
                         ),
-                      ],
-                    ],
-                  ],
+                        const SizedBox(height: 24),
+                        Text(
+                          'NorrChat',
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'On-device AI Assistant',
+                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                          ),
+                          const SizedBox(height: 48),
+                          if (_isLoading) ...[
+                            const SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: CircularProgressIndicator(strokeWidth: 3),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              'Loading model...',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.outline,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'This may take a moment',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.outline.withOpacity(0.7),
+                              ),
+                            ),
+                          ] else ...[
+                            FilledButton.icon(
+                              onPressed: _modelPath != null ? _loadModel : null,
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('Load Model'),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _pickModelFolder,
+                              icon: const Icon(Icons.folder_open),
+                              label: Text(_modelPath != null ? 'Change Model' : 'Select Model Folder'),
+                            ),
+                            if (_modelPath != null) ...[
+                              const SizedBox(height: 16),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 32),
+                                child: Text(
+                                  _modelPath!.split('/').last,
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.outline,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-              ),
             ),
         ],
       ),

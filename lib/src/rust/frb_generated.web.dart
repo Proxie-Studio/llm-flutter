@@ -343,6 +343,9 @@ class RustLibWire implements BaseWire {
   void wire__crate__api__MnnLlm_detokenize(NativePortType port_, int that, JSAny tokens) =>
       wasmModule.wire__crate__api__MnnLlm_detokenize(port_, that, tokens);
 
+  void wire__crate__api__MnnLlm_dispose(NativePortType port_, int that) =>
+      wasmModule.wire__crate__api__MnnLlm_dispose(port_, that);
+
   JSAny? /* flutter_rust_bridge::for_generated::WireSyncRust2DartDco */ wire__crate__api__MnnLlm_dump_config(
     int that,
   ) => wasmModule.wire__crate__api__MnnLlm_dump_config(that);
@@ -440,6 +443,8 @@ extension type RustLibWasmModule._(JSObject _) implements JSObject {
   );
 
   external void wire__crate__api__MnnLlm_detokenize(NativePortType port_, int that, JSAny tokens);
+
+  external void wire__crate__api__MnnLlm_dispose(NativePortType port_, int that);
 
   external JSAny? /* flutter_rust_bridge::for_generated::WireSyncRust2DartDco */ wire__crate__api__MnnLlm_dump_config(
     int that,

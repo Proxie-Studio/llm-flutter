@@ -35,6 +35,13 @@ abstract class MnnLlm implements RustOpaqueInterface {
   /// Decode tokens to text
   Future<String> detokenize({required List<int> tokens});
 
+  /// Explicitly release the model and free all resources
+  ///
+  /// Call this before creating a new model to ensure clean memory state.
+  /// After calling dispose, this instance should not be used.
+  @override
+  Future<void> dispose();
+
   /// Get the model's current configuration as JSON
   String dumpConfig();
 
